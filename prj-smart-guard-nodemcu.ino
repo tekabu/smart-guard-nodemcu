@@ -6,8 +6,8 @@
 #include <MFRC522DriverPinSimple.h>
 #include <MFRC522Debug.h>
 
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "HUAWEI-hdVq";
+const char* password = "DG2MJrzC";
 const char* mqtt_server = "broker.emqx.io";
 const int mqtt_port = 1883;
 const char* mqtt_topic = "smartguard/rfid";
