@@ -284,15 +284,8 @@ void loop() {
   client.loop();
 
   while (Serial.available() > 0) {
+    // When nodemcu attached to arduino, serial monitor input will not work anymore
     char c = Serial.read();
-
-    Serial.print("[DEBUG] Char received: '");
-    Serial.print(c);
-    Serial.print("' (ASCII: ");
-    Serial.print((int)c);
-    Serial.print(") Buffer: '");
-    Serial.print(serialBuffer);
-    Serial.println("'");
 
     if (c == '\n' || c == '\r') {
       if (serialBuffer == "DEBUGON") {
