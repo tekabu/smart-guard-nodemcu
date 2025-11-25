@@ -13,9 +13,16 @@ const int mqtt_port = 1883;
 const char* mqtt_topic = "smartguard/rfid";
 const char* mqtt_register_topic = "smartguard/register/card";
 const char* mqtt_register_success_topic = "smartguard/register/card/success";
+const char* mqtt_register_error_topic = "smartguard/register/card/error";
+const char* mqtt_register_fingerprint_topic = "smartguard/register/fingerprint";
+const char* mqtt_register_fingerprint_success_topic = "smartguard/register/fingerprint/success";
+const char* mqtt_register_fingerprint_error_topic = "smartguard/register/fingerprint/error";
 
 bool registrationMode = false;
 String registrationReference = "";
+bool fingerprintRegistrationMode = false;
+String fingerprintRegistrationReference = "";
+String serialBuffer = "";
 
 MFRC522DriverPinSimple ss_pin_1(D8);
 MFRC522DriverPinSimple ss_pin_2(D1);
@@ -63,18 +70,43 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     StaticJsonDocument<200> doc;
     DeserializationError error = deserializeJson(doc, message);
 
-    if (!error) {
-      if (doc.containsKey("reference")) {
-        registrationReference = doc["reference"].as<String>();
-        registrationMode = true;
-        Serial.println("Registration mode activated!");
-        Serial.print("Reference: ");
-        Serial.println(registrationReference);
-        Serial.println("Waiting for card scan...");
-      }
+    if (error) {
+      String errorMsg = "JSON parse error: ";
+      errorMsg += error.c_str();
+      Serial.println(errorMsg);
+      sendCardRegistrationError(errorMsg);
+    } else if (!doc.containsKey("reference")) {
+      String errorMsg = "Missing 'reference' key in JSON payload";
+      Serial.println(errorMsg);
+      sendCardRegistrationError(errorMsg);
     } else {
-      Serial.print("JSON parse error: ");
-      Serial.println(error.c_str());
+      registrationReference = doc["reference"].as<String>();
+      registrationMode = true;
+      Serial.println("Registration mode activated!");
+      Serial.print("Reference: ");
+      Serial.println(registrationReference);
+      Serial.println("Waiting for card scan...");
+    }
+  } else if (String(topic) == mqtt_register_fingerprint_topic) {
+    StaticJsonDocument<200> doc;
+    DeserializationError error = deserializeJson(doc, message);
+
+    if (error) {
+      String errorMsg = "JSON parse error: ";
+      errorMsg += error.c_str();
+      Serial.println(errorMsg);
+      sendFingerprintRegistrationError(errorMsg);
+    } else if (!doc.containsKey("reference")) {
+      String errorMsg = "Missing 'reference' key in JSON payload";
+      Serial.println(errorMsg);
+      sendFingerprintRegistrationError(errorMsg);
+    } else {
+      fingerprintRegistrationReference = doc["reference"].as<String>();
+      fingerprintRegistrationMode = true;
+      Serial.println("Fingerprint registration mode activated!");
+      Serial.print("Reference: ");
+      Serial.println(fingerprintRegistrationReference);
+      Serial.print("$FP_REG#");
     }
   }
 }
@@ -90,6 +122,9 @@ void reconnect() {
       client.subscribe(mqtt_register_topic);
       Serial.print("Subscribed to: ");
       Serial.println(mqtt_register_topic);
+      client.subscribe(mqtt_register_fingerprint_topic);
+      Serial.print("Subscribed to: ");
+      Serial.println(mqtt_register_fingerprint_topic);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -124,7 +159,7 @@ void sendCardData(int reader, String cardId) {
   Serial.println(jsonBuffer);
 }
 
-void sendRegistrationSuccess(String reference, String cardId) {
+void sendCardRegistrationSuccess(String reference, String cardId) {
   StaticJsonDocument<200> doc;
   doc["reference"] = reference;
   doc["card_id"] = cardId;
@@ -133,7 +168,44 @@ void sendRegistrationSuccess(String reference, String cardId) {
   serializeJson(doc, jsonBuffer);
 
   client.publish(mqtt_register_success_topic, jsonBuffer);
-  Serial.print("Registration Success Published: ");
+  Serial.print("Card Registration Success Published: ");
+  Serial.println(jsonBuffer);
+}
+
+void sendFingerprintRegistrationSuccess(String reference, String fingerprintId) {
+  StaticJsonDocument<200> doc;
+  doc["reference"] = reference;
+  doc["fingerprint_id"] = fingerprintId;
+
+  char jsonBuffer[200];
+  serializeJson(doc, jsonBuffer);
+
+  client.publish(mqtt_register_fingerprint_success_topic, jsonBuffer);
+  Serial.print("Fingerprint Registration Success Published: ");
+  Serial.println(jsonBuffer);
+}
+
+void sendCardRegistrationError(String errorMessage) {
+  StaticJsonDocument<200> doc;
+  doc["error"] = errorMessage;
+
+  char jsonBuffer[200];
+  serializeJson(doc, jsonBuffer);
+
+  client.publish(mqtt_register_error_topic, jsonBuffer);
+  Serial.print("Card Registration Error Published: ");
+  Serial.println(jsonBuffer);
+}
+
+void sendFingerprintRegistrationError(String errorMessage) {
+  StaticJsonDocument<200> doc;
+  doc["error"] = errorMessage;
+
+  char jsonBuffer[200];
+  serializeJson(doc, jsonBuffer);
+
+  client.publish(mqtt_register_fingerprint_error_topic, jsonBuffer);
+  Serial.print("Fingerprint Registration Error Published: ");
   Serial.println(jsonBuffer);
 }
 
@@ -160,6 +232,30 @@ void loop() {
   }
   client.loop();
 
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+    if (c == '#') {
+      if (serialBuffer.startsWith("$FP_OK: ")) {
+        int idStart = serialBuffer.indexOf(": ") + 2;
+        int idEnd = serialBuffer.length();
+        String fingerprintId = serialBuffer.substring(idStart, idEnd);
+
+        Serial.print("Fingerprint ID received: ");
+        Serial.println(fingerprintId);
+
+        if (fingerprintRegistrationMode) {
+          sendFingerprintRegistrationSuccess(fingerprintRegistrationReference, fingerprintId);
+          fingerprintRegistrationMode = false;
+          fingerprintRegistrationReference = "";
+          Serial.println("Fingerprint registration complete! Mode deactivated.");
+        }
+      }
+      serialBuffer = "";
+    } else {
+      serialBuffer += c;
+    }
+  }
+
   if (mfrc522_1.PICC_IsNewCardPresent()) {
     if (mfrc522_1.PICC_ReadCardSerial()) {
       String cardId = uidToString(mfrc522_1.uid);
@@ -167,7 +263,7 @@ void loop() {
       Serial.println(cardId);
 
       if (registrationMode) {
-        sendRegistrationSuccess(registrationReference, cardId);
+        sendCardRegistrationSuccess(registrationReference, cardId);
         registrationMode = false;
         registrationReference = "";
         Serial.println("Registration complete! Mode deactivated.");
@@ -188,7 +284,7 @@ void loop() {
       Serial.println(cardId);
 
       if (registrationMode) {
-        sendRegistrationSuccess(registrationReference, cardId);
+        sendCardRegistrationSuccess(registrationReference, cardId);
         registrationMode = false;
         registrationReference = "";
         Serial.println("Registration complete! Mode deactivated.");
