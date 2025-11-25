@@ -13,7 +13,7 @@ const int mqtt_port = 1883;
 const char* mqtt_topic = "smartguard/rfid";
 
 MFRC522DriverPinSimple ss_pin_1(D8);
-MFRC522DriverPinSimple ss_pin_2(D0);
+MFRC522DriverPinSimple ss_pin_2(D1);
 
 MFRC522DriverSPI driver_1{ ss_pin_1 };
 MFRC522DriverSPI driver_2{ ss_pin_2 };
