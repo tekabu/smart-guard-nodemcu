@@ -6,7 +6,7 @@
 #include <MFRC522DriverPinSimple.h>
 #include <MFRC522Debug.h>
 
-#define SERIAL_DEBUG false
+bool SERIAL_DEBUG = false;
 
 const char* ssid = "HUAWEI-hdVq";
 const char* password = "DG2MJrzC";
@@ -19,6 +19,9 @@ const char* mqtt_register_error_topic = "smartguard/register/card/error";
 const char* mqtt_register_fingerprint_topic = "smartguard/register/fingerprint";
 const char* mqtt_register_fingerprint_success_topic = "smartguard/register/fingerprint/success";
 const char* mqtt_register_fingerprint_error_topic = "smartguard/register/fingerprint/error";
+const char* mqtt_lock_open_topic = "smartguard/lock/open";
+const char* mqtt_verify_card_topic = "smartguard/verify/card";
+const char* mqtt_verify_fingerprint_topic = "smartguard/verify/fingerprint";
 
 bool registrationMode = false;
 String registrationReference = "";
@@ -122,6 +125,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial_print(fingerprintRegistrationReference, true);
       Serial.print("$FP_REG#");
     }
+  } else if (String(topic) == mqtt_lock_open_topic) {
+    Serial.print("$OPEN_LOCK#");
+    Serial_print("Lock open command sent", true);
   }
 }
 
@@ -139,6 +145,9 @@ void reconnect() {
       client.subscribe(mqtt_register_fingerprint_topic);
       Serial_print("Subscribed to: ");
       Serial_print(mqtt_register_fingerprint_topic, true);
+      client.subscribe(mqtt_lock_open_topic);
+      Serial_print("Subscribed to: ");
+      Serial_print(mqtt_lock_open_topic, true);
     } else {
       Serial_print("failed, rc=");
       Serial_print(String(client.state()));
@@ -170,6 +179,19 @@ void sendCardData(int reader, String cardId) {
 
   client.publish(mqtt_topic, jsonBuffer);
   Serial_print("Published: ");
+  Serial_print(jsonBuffer, true);
+}
+
+void sendCardVerification(int reader, String cardId) {
+  StaticJsonDocument<200> doc;
+  doc["card_reader"] = reader;
+  doc["card_id"] = cardId;
+
+  char jsonBuffer[200];
+  serializeJson(doc, jsonBuffer);
+
+  client.publish(mqtt_verify_card_topic, jsonBuffer);
+  Serial_print("Card Verification Published: ");
   Serial_print(jsonBuffer, true);
 }
 
@@ -223,6 +245,19 @@ void sendFingerprintRegistrationError(String errorMessage) {
   Serial_print(jsonBuffer, true);
 }
 
+void sendFingerprintVerification(int reader, int fingerprintId) {
+  StaticJsonDocument<200> doc;
+  doc["fingerprint_reader"] = reader;
+  doc["fingerprint_id"] = fingerprintId;
+
+  char jsonBuffer[200];
+  serializeJson(doc, jsonBuffer);
+
+  client.publish(mqtt_verify_fingerprint_topic, jsonBuffer);
+  Serial_print("Fingerprint Verification Published: ");
+  Serial_print(jsonBuffer, true);
+}
+
 void setup() {
   Serial.begin(115200);
   while (!Serial);
@@ -251,6 +286,20 @@ void loop() {
   while (Serial.available() > 0) {
     char c = Serial.read();
 
+    if (c == '\n' || c == '\r') {
+      if (serialBuffer == "DEBUGON") {
+        SERIAL_DEBUG = true;
+        Serial.println("Debug mode enabled");
+        serialBuffer = "";
+        continue;
+      } else if (serialBuffer == "DEBUGOFF") {
+        SERIAL_DEBUG = false;
+        Serial.println("Debug mode disabled");
+        serialBuffer = "";
+        continue;
+      }
+    }
+
     if (c == '$') {
       serialBuffer = "$";
       Serial_print("[DEBUG] Starting new message buffer", true);
@@ -272,15 +321,36 @@ void loop() {
           fingerprintRegistrationReference = "";
           Serial_print("Fingerprint registration complete! Mode deactivated.", true);
         }
+      } else if (serialBuffer.startsWith("$FP_ID: ")) {
+        int idStart = 8;
+        String data = serialBuffer.substring(idStart);
+        int commaIndex = data.indexOf(',');
+
+        if (commaIndex > 0) {
+          int readerIndex = data.substring(0, commaIndex).toInt();
+          int templateId = data.substring(commaIndex + 1).toInt();
+
+          Serial_print("\nFingerprint verification - Reader: ");
+          Serial_print(String(readerIndex));
+          Serial_print(" Template: ");
+          Serial_print(String(templateId), true);
+
+          if (!fingerprintRegistrationMode) {
+            sendFingerprintVerification(readerIndex, templateId);
+          }
+        } else {
+          Serial_print("[DEBUG] Invalid $FP_ID format", true);
+        }
       } else {
         Serial_print("[DEBUG] Buffer does not match expected format", true);
       }
       serialBuffer = "";
-    } else if (serialBuffer.length() > 0 || serialBuffer.startsWith("$")) {
+    } else if (serialBuffer.startsWith("$")) {
       serialBuffer += c;
-      Serial_print("[DEBUG] Added char to buffer", true);
-    } else {
-      Serial_print("[DEBUG] Char ignored (buffer not started)", true);
+      Serial_print("[DEBUG] Added char to buffer (message)", true);
+    } else if (c != '\n' && c != '\r') {
+      serialBuffer += c;
+      Serial_print("[DEBUG] Added char to buffer (command)", true);
     }
   }
 
@@ -296,7 +366,7 @@ void loop() {
         registrationReference = "";
         Serial_print("Registration complete! Mode deactivated.", true);
       } else {
-        sendCardData(1, cardId);
+        sendCardVerification(1, cardId);
       }
 
       mfrc522_1.PICC_HaltA();
@@ -317,7 +387,7 @@ void loop() {
         registrationReference = "";
         Serial_print("Registration complete! Mode deactivated.", true);
       } else {
-        sendCardData(2, cardId);
+        sendCardVerification(2, cardId);
       }
 
       mfrc522_2.PICC_HaltA();
