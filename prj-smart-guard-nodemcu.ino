@@ -50,21 +50,23 @@ void Serial_print(String message, bool ln = false) {
 
 void setup_wifi() {
   delay(10);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial_print("", true);
+  Serial_print("Connecting to ");
+  Serial_print(ssid, true);
 
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    Serial_print(".");
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  Serial_print("", true);
+  Serial_print("WiFi connected", true);
+  Serial_print("IP address: ", true);
+  if (SERIAL_DEBUG) {
+    Serial.println(WiFi.localIP());
+  }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -228,10 +230,12 @@ void setup() {
   mfrc522_1.PCD_Init();
   mfrc522_2.PCD_Init();
 
-  MFRC522Debug::PCD_DumpVersionToSerial(mfrc522_1, Serial);
-  MFRC522Debug::PCD_DumpVersionToSerial(mfrc522_2, Serial);
+  if (SERIAL_DEBUG) {
+    MFRC522Debug::PCD_DumpVersionToSerial(mfrc522_1, Serial);
+    MFRC522Debug::PCD_DumpVersionToSerial(mfrc522_2, Serial);
+  }
 
-  Serial.println("Scan PICC to see UID, SAK, type, and data blocks...");
+  Serial_print("Scan PICC to see UID, SAK, type, and data blocks...", true);
 
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
