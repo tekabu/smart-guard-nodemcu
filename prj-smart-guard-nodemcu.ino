@@ -11,6 +11,11 @@ const char* password = "DG2MJrzC";
 const char* mqtt_server = "broker.emqx.io";
 const int mqtt_port = 1883;
 const char* mqtt_topic = "smartguard/rfid";
+const char* mqtt_register_topic = "smartguard/register/card";
+const char* mqtt_register_success_topic = "smartguard/register/card/success";
+
+bool registrationMode = false;
+String registrationReference = "";
 
 MFRC522DriverPinSimple ss_pin_1(D8);
 MFRC522DriverPinSimple ss_pin_2(D1);
@@ -43,6 +48,37 @@ void setup_wifi() {
   Serial.println(WiFi.localIP());
 }
 
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  Serial.println(message);
+
+  if (String(topic) == mqtt_register_topic) {
+    StaticJsonDocument<200> doc;
+    DeserializationError error = deserializeJson(doc, message);
+
+    if (!error) {
+      if (doc.containsKey("reference")) {
+        registrationReference = doc["reference"].as<String>();
+        registrationMode = true;
+        Serial.println("Registration mode activated!");
+        Serial.print("Reference: ");
+        Serial.println(registrationReference);
+        Serial.println("Waiting for card scan...");
+      }
+    } else {
+      Serial.print("JSON parse error: ");
+      Serial.println(error.c_str());
+    }
+  }
+}
+
 void reconnect() {
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
@@ -51,6 +87,9 @@ void reconnect() {
 
     if (client.connect(clientId.c_str())) {
       Serial.println("connected");
+      client.subscribe(mqtt_register_topic);
+      Serial.print("Subscribed to: ");
+      Serial.println(mqtt_register_topic);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -85,6 +124,19 @@ void sendCardData(int reader, String cardId) {
   Serial.println(jsonBuffer);
 }
 
+void sendRegistrationSuccess(String reference, String cardId) {
+  StaticJsonDocument<200> doc;
+  doc["reference"] = reference;
+  doc["card_id"] = cardId;
+
+  char jsonBuffer[200];
+  serializeJson(doc, jsonBuffer);
+
+  client.publish(mqtt_register_success_topic, jsonBuffer);
+  Serial.print("Registration Success Published: ");
+  Serial.println(jsonBuffer);
+}
+
 void setup() {
   Serial.begin(115200);
   while (!Serial);
@@ -99,6 +151,7 @@ void setup() {
 
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(mqttCallback);
 }
 
 void loop() {
@@ -112,7 +165,16 @@ void loop() {
       String cardId = uidToString(mfrc522_1.uid);
       Serial.print("Card ID1: ");
       Serial.println(cardId);
-      sendCardData(1, cardId);
+
+      if (registrationMode) {
+        sendRegistrationSuccess(registrationReference, cardId);
+        registrationMode = false;
+        registrationReference = "";
+        Serial.println("Registration complete! Mode deactivated.");
+      } else {
+        sendCardData(1, cardId);
+      }
+
       mfrc522_1.PICC_HaltA();
       mfrc522_1.PCD_StopCrypto1();
       delay(1000);
@@ -124,7 +186,16 @@ void loop() {
       String cardId = uidToString(mfrc522_2.uid);
       Serial.print("Card ID2: ");
       Serial.println(cardId);
-      sendCardData(2, cardId);
+
+      if (registrationMode) {
+        sendRegistrationSuccess(registrationReference, cardId);
+        registrationMode = false;
+        registrationReference = "";
+        Serial.println("Registration complete! Mode deactivated.");
+      } else {
+        sendCardData(2, cardId);
+      }
+
       mfrc522_2.PICC_HaltA();
       mfrc522_2.PCD_StopCrypto1();
       delay(1000);
