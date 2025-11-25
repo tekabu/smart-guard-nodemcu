@@ -235,9 +235,22 @@ void loop() {
   while (Serial.available() > 0) {
     char c = Serial.read();
 
+    Serial.print("[DEBUG] Char received: '");
+    Serial.print(c);
+    Serial.print("' (ASCII: ");
+    Serial.print((int)c);
+    Serial.print(") Buffer: '");
+    Serial.print(serialBuffer);
+    Serial.println("'");
+
     if (c == '$') {
       serialBuffer = "$";
+      Serial.println("[DEBUG] Starting new message buffer");
     } else if (c == '#') {
+      Serial.print("[DEBUG] End delimiter found. Buffer content: '");
+      Serial.print(serialBuffer);
+      Serial.println("'");
+
       if (serialBuffer.startsWith("$FP_OK: ")) {
         int idStart = 8;
         String fingerprintId = serialBuffer.substring(idStart);
@@ -251,10 +264,15 @@ void loop() {
           fingerprintRegistrationReference = "";
           Serial.println("Fingerprint registration complete! Mode deactivated.");
         }
+      } else {
+        Serial.println("[DEBUG] Buffer does not match expected format");
       }
       serialBuffer = "";
     } else if (serialBuffer.length() > 0 || serialBuffer.startsWith("$")) {
       serialBuffer += c;
+      Serial.println("[DEBUG] Added char to buffer");
+    } else {
+      Serial.println("[DEBUG] Char ignored (buffer not started)");
     }
   }
 
