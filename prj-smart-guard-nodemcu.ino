@@ -234,13 +234,15 @@ void loop() {
 
   while (Serial.available() > 0) {
     char c = Serial.read();
-    if (c == '#') {
-      if (serialBuffer.startsWith("$FP_OK: ")) {
-        int idStart = serialBuffer.indexOf(": ") + 2;
-        int idEnd = serialBuffer.length();
-        String fingerprintId = serialBuffer.substring(idStart, idEnd);
 
-        Serial.print("Fingerprint ID received: ");
+    if (c == '$') {
+      serialBuffer = "$";
+    } else if (c == '#') {
+      if (serialBuffer.startsWith("$FP_OK: ")) {
+        int idStart = 8;
+        String fingerprintId = serialBuffer.substring(idStart);
+
+        Serial.print("\nFingerprint ID received: ");
         Serial.println(fingerprintId);
 
         if (fingerprintRegistrationMode) {
@@ -251,7 +253,7 @@ void loop() {
         }
       }
       serialBuffer = "";
-    } else {
+    } else if (serialBuffer.length() > 0 || serialBuffer.startsWith("$")) {
       serialBuffer += c;
     }
   }
